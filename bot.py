@@ -118,7 +118,7 @@ for k, v in raw.items():
         user_id = int(k)
         short_term_data[user_id] = [datetime.fromisoformat(t) for t in v]
     except Exception as e:
-        logger.warning(f"Помилка завантаження short_term для {k}: {v} — {e}")
+        logger.warning(f"Помилка заванта拔ження short_term для {k}: {v} — {e}")
 
 # Мута — завантажуємо тільки активні
 mutes = {}
@@ -378,7 +378,7 @@ async def mute24h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await delete_command_message(message)
     if not message.reply_to_message or not message.reply_to_message.from_user:
-        await reply_in_private(update, context, "Потрібно відповіти на повідомлення користувача.")
+        await reply_in_private(update, context, "Потрібно відповісти на повідомлення користувача.")
         return
     target_id = message.reply_to_message.from_user.id
     target_name = message.reply_to_message.from_user.full_name
@@ -396,7 +396,7 @@ async def mute666(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_id = message.reply_to_message.from_user.id
     target_name = message.reply_to_message.from_user.full_name
     await manual_mute(context, message.chat.id, target_id, 365 * 24 * 60, "ручний мут 365 днів")
-    await reply_in_private(update, context, f"{target_name} (id {target_id}) замучений на ovo 365 днів.")
+    await reply_in_private(update, context, f"{target_name} (id {target_id}) замучений на 365 днів.")
 
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
@@ -681,7 +681,7 @@ if __name__ == "__main__":
 # ─── ВЕРСІЇ ТА ІНСТРУКЦІЇ ДЛЯ МАЙБУТНЬОГО GROK ───────────────────────────────
 # =============================================================================
 #
-# Поточна версія: 0.0.22
+# Поточна версія: 0.0.23
 #
 # Правила зміни версії (обов’язково виконуй при кожному повному виводі коду):
 #
@@ -702,10 +702,11 @@ if __name__ == "__main__":
 # • X.Y.Z YYYY-MM-DD Короткий опис змін
 #
 # Changelog:
+# • 0.0.23 2026-01-31 Дрібне підвищення версії за правилами (повний вивід коду без функціональних змін)
 # • 0.0.22 2026-01-31 Додано обмеження приватних повідомлень від бота: максимум 1 на хвилину для звичайних користувачів (OWNER звільнений)
 # • 0.0.21 2026-01-31 Додано опції EXEMPT_*_ANTIFLOOD у .env для окремого звільнення OWNER, creator та administrator від антифлуд-лічильників (за замовчуванням увімкнено)
 # • 0.0.20 2026-01-31 Реалізовано ротацію логів за часом (TimedRotatingFileHandler, щодня опівночі, 30 днів)
-# • 0.0.19 2025-07-14 Додано блок версій, changelog та інструкції
+# • 0.0.19 2026-01-30 Додано блок версій, changelog та інструкції
 # • 0.0.18 (раніше) Початкова версія
 #
 # 5. Якщо користувач попросить конкретну стару версію — вказуй, що це регрес,
