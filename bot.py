@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, date, time, timezone
 import re
 import json
 from pathlib import Path
-from filelock import FileLock, Timeout  # pip install filelock
+from filelock import FileLock, Timeout # pip install filelock
 from logging.handlers import TimedRotatingFileHandler
 
 # Завантажуємо .env
@@ -39,38 +39,30 @@ SHORT_TERM_MUTE_MINUTES = int(os.getenv("SHORT_TERM_MUTE_MINUTES", 3))
 VOICE_MUTE_MINUTES = int(os.getenv("VOICE_MUTE_MINUTES", 30))
 DAILY_MUTE_DAYS = int(os.getenv("DAILY_MUTE_DAYS", 7))
 
-# ─── Налаштування логування з ротацією за часом (варіант 2) ───
+# Нові опції звільнення від антифлуд-лічильників
+# Додайте в .env (за замовчуванням увімкнено — true):
+# EXEMPT_OWNER_ANTIFLOOD=true
+# EXEMPT_CREATOR_ANTIFLOOD=true
+# EXEMPT_ADMIN_ANTIFLOOD=true
+EXEMPT_OWNER_ANTIFLOOD = os.getenv("EXEMPT_OWNER_ANTIFLOOD", "true").lower() == "true"
+EXEMPT_CREATOR_ANTIFLOOD = os.getenv("EXEMPT_CREATOR_ANTIFLOOD", "true").lower() == "true"
+EXEMPT_ADMIN_ANTIFLOOD = os.getenv("EXEMPT_ADMIN_ANTIFLOOD", "true").lower() == "true"
+
+# ─── Налаштування логування з ротацією за часом ───
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
-
-# TimedRotatingFileHandler — новий файл щодня опівночі
 handler = TimedRotatingFileHandler(
     filename="bot_moderation.log",
-    when='midnight',           # ротація опівночі
-    interval=1,                # кожні 1 день
-    backupCount=30,            # зберігати логи за останні 30 днів
+    when='midnight',
+    interval=1,
+    backupCount=30,
     encoding='utf-8'
 )
-
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
-
-# Додаємо тільки файловий обробник (рекомендовано для демона)
 logger.addHandler(handler)
 
 # ────────────────────────────────────────────────────────────────
-# StreamHandler повернуто, але закоментовано (раніше був у basicConfig)
-#
-# logging.StreamHandler()   # ← раніше додавав вивід логів у консоль (stdout/stderr)
-#
-# Що робив цей рядок раніше:
-#   - Додавав вивід усіх логів (INFO, WARNING, ERROR тощо) у консоль (stdout/stderr)
-#   - При запуску в терміналі (python bot.py) ти бачив логи в реальному часі
-#   - При запуску як демон (systemd, nohup тощо) ці логи йшли або в journalctl,
-#     або в nohup.out, або в /dev/null — залежно від перенаправлення
-#
-# ────────────────────────────────────────────────────────────────
-
 ALLOWED_GROUP_FILTER = filters.Chat(chat_id=ALLOWED_CHAT_IDS) & filters.ChatType.GROUPS
 
 # ─── JSON збереження ────────────────────────────────────────────────────────────────
@@ -489,6 +481,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_time = message.date
     user_id = message.from_user.id if message.from_user else None
     is_anonymous = user_id is None
+
     # Перевірка мута
     if user_id and user_id in mutes:
         if datetime.now(timezone.utc) < mutes[user_id]:
@@ -500,6 +493,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             del mutes[user_id]
             save_mutes()
+
     if group_locked:
         try:
             member = await context.bot.get_chat_member(chat_id, user_id) if user_id else None
@@ -510,6 +504,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await message.delete()
             return
+
     if message.voice:
         try:
             await message.delete()
@@ -527,14 +522,31 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
         return
+
     if is_anonymous:
         return
-    try:
-        member = await context.bot.get_chat_member(chat_id, user_id)
-        if member.status in ("administrator", "creator"):
-            pass
-    except:
-        return
+
+    # === НОВА ЛОГІКА ЗВІЛЬНЕННЯ ВІД АНТИФЛУДУ ===
+    if user_id:
+        try:
+            member = await context.bot.get_chat_member(chat_id, user_id)
+            status = member.status
+        except Exception as e:
+            logger.debug(f"Не вдалося отримати статус користувача {user_id} для перевірки exempt: {e}")
+            status = None
+
+        exempt = False
+        if user_id == OWNER_ID and EXEMPT_OWNER_ANTIFLOOD:
+            exempt = True
+        elif status == "creator" and EXEMPT_CREATOR_ANTIFLOOD:
+            exempt = True
+        elif status == "administrator" and EXEMPT_ADMIN_ANTIFLOOD:
+            exempt = True
+
+        if exempt:
+            # Повідомлення від звільнених користувачів не враховуються в лічильниках антифлуду
+            return
+
     # Короткостроковий
     short_term_data.setdefault(user_id, []).append(current_time)
     cutoff = current_time - timedelta(minutes=SHORT_TERM_WINDOW_MINUTES)
@@ -552,6 +564,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         save_short()
         return
+
     # Годинний
     hourly_data.setdefault(user_id, []).append(current_time)
     cutoff_hour = current_time - timedelta(hours=1)
@@ -569,6 +582,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         save_hourly()
         return
+
     # Денний
     today = current_time.date()
     if user_id not in daily_limits:
@@ -580,6 +594,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             entry["count"] = 1
         else:
             entry["count"] += 1
+
     if daily_limits[user_id]["count"] > DAILY_MESSAGE_LIMIT:
         display_name = message.from_user.full_name
         await apply_soft_mute(
@@ -593,6 +608,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         save_daily()
         return
+
     save_daily()
     save_hourly()
     save_short()
@@ -652,7 +668,7 @@ if __name__ == "__main__":
 # ─── ВЕРСІЇ ТА ІНСТРУКЦІЇ ДЛЯ МАЙБУТНЬОГО GROK ───────────────────────────────
 # =============================================================================
 #
-# Поточна версія: 0.0.20
+# Поточна версія: 0.0.21
 #
 # Правила зміни версії (обов’язково виконуй при кожному повному виводі коду):
 #
@@ -673,6 +689,7 @@ if __name__ == "__main__":
 # • X.Y.Z YYYY-MM-DD Короткий опис змін
 #
 # Changelog:
+# • 0.0.21 2026-01-31 Додано опції EXEMPT_*_ANTIFLOOD у .env для окремого звільнення OWNER, creator та administrator від антифлуд-лічильників (за замовчуванням увімкнено)
 # • 0.0.20 2026-01-31 Реалізовано ротацію логів за часом (TimedRotatingFileHandler, щодня опівночі, 30 днів)
 # • 0.0.19 2025-07-14 Додано блок версій, changelog та інструкції
 # • 0.0.18 (раніше) Початкова версія
@@ -682,9 +699,9 @@ if __name__ == "__main__":
 #
 # 6. Найважливіші майбутні покращення (пріоритетність):
 # • Перейти на per-chat locked status та мути
-# • Звільнити адміністраторів від антифлуд-лічильників
 # • Додати періодичне збереження JSON через JobQueue
 # • Додати graceful shutdown (збереження даних при SIGTERM)
 # • Додати команду /reloadconfig
 #
 # =============================================================================
+(venv) heorh@olgera:~/Telegram-Moderation-Bot$ 
