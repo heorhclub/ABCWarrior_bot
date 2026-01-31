@@ -9,6 +9,7 @@ import re
 import json
 from pathlib import Path
 from filelock import FileLock, Timeout  # pip install filelock
+from logging.handlers import TimedRotatingFileHandler
 
 # Завантажуємо .env
 load_dotenv()
@@ -29,35 +30,56 @@ if ALLOWED_CHAT_IDS_STR:
         print(f"Помилка парсингу ALLOWED_CHAT_IDS: {e}")
 
 # Антифлуд-ліміти (можна налаштувати через .env)
-DAILY_MESSAGE_LIMIT       = int(os.getenv("DAILY_MESSAGE_LIMIT", 200))
-HOURLY_MESSAGE_LIMIT      = int(os.getenv("HOURLY_MESSAGE_LIMIT", 100))
-HOURLY_MUTE_MINUTES       = int(os.getenv("HOURLY_MUTE_MINUTES", 15))
-SHORT_TERM_MESSAGE_LIMIT  = int(os.getenv("SHORT_TERM_MESSAGE_LIMIT", 10))
+DAILY_MESSAGE_LIMIT = int(os.getenv("DAILY_MESSAGE_LIMIT", 200))
+HOURLY_MESSAGE_LIMIT = int(os.getenv("HOURLY_MESSAGE_LIMIT", 100))
+HOURLY_MUTE_MINUTES = int(os.getenv("HOURLY_MUTE_MINUTES", 15))
+SHORT_TERM_MESSAGE_LIMIT = int(os.getenv("SHORT_TERM_MESSAGE_LIMIT", 10))
 SHORT_TERM_WINDOW_MINUTES = int(os.getenv("SHORT_TERM_WINDOW_MINUTES", 5))
-SHORT_TERM_MUTE_MINUTES   = int(os.getenv("SHORT_TERM_MUTE_MINUTES", 3))
-VOICE_MUTE_MINUTES        = int(os.getenv("VOICE_MUTE_MINUTES", 30))
-DAILY_MUTE_DAYS           = int(os.getenv("DAILY_MUTE_DAYS", 7))
+SHORT_TERM_MUTE_MINUTES = int(os.getenv("SHORT_TERM_MUTE_MINUTES", 3))
+VOICE_MUTE_MINUTES = int(os.getenv("VOICE_MUTE_MINUTES", 30))
+DAILY_MUTE_DAYS = int(os.getenv("DAILY_MUTE_DAYS", 7))
 
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler("bot_moderation.log", encoding='utf-8'),
-        logging.StreamHandler()
-    ]
-)
+# ─── Налаштування логування з ротацією за часом (варіант 2) ───
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+
+# TimedRotatingFileHandler — новий файл щодня опівночі
+handler = TimedRotatingFileHandler(
+    filename="bot_moderation.log",
+    when='midnight',           # ротація опівночі
+    interval=1,                # кожні 1 день
+    backupCount=30,            # зберігати логи за останні 30 днів
+    encoding='utf-8'
+)
+
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+
+# Додаємо тільки файловий обробник (рекомендовано для демона)
+logger.addHandler(handler)
+
+# ────────────────────────────────────────────────────────────────
+# StreamHandler повернуто, але закоментовано (раніше був у basicConfig)
+#
+# logging.StreamHandler()   # ← раніше додавав вивід логів у консоль (stdout/stderr)
+#
+# Що робив цей рядок раніше:
+#   - Додавав вивід усіх логів (INFO, WARNING, ERROR тощо) у консоль (stdout/stderr)
+#   - При запуску в терміналі (python bot.py) ти бачив логи в реальному часі
+#   - При запуску як демон (systemd, nohup тощо) ці логи йшли або в journalctl,
+#     або в nohup.out, або в /dev/null — залежно від перенаправлення
+#
+# ────────────────────────────────────────────────────────────────
 
 ALLOWED_GROUP_FILTER = filters.Chat(chat_id=ALLOWED_CHAT_IDS) & filters.ChatType.GROUPS
 
 # ─── JSON збереження ────────────────────────────────────────────────────────────────
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
-
-DAILY_FILE   = DATA_DIR / "daily_limits.json"
-HOURLY_FILE  = DATA_DIR / "hourly_data.json"
-SHORT_FILE   = DATA_DIR / "short_term_data.json"
-MUTES_FILE   = DATA_DIR / "mutes.json"
+DAILY_FILE = DATA_DIR / "daily_limits.json"
+HOURLY_FILE = DATA_DIR / "hourly_data.json"
+SHORT_FILE = DATA_DIR / "short_term_data.json"
+MUTES_FILE = DATA_DIR / "mutes.json"
 
 def save_json(path: Path, data):
     lock_path = path.with_suffix(path.suffix + ".lock")
@@ -600,9 +622,8 @@ async def auto_delete_commands(update: Update, context: ContextTypes.DEFAULT_TYP
             logger.debug(f"Не вдалося видалити команду /{command}: {e}")
 
 if __name__ == "__main__":
-    logger.info("Запуск бота | мути в окремому файлі mutes.json")
+    logger.info("Запуск бота | мути в окремому файлі mutes.json | логи ротація щодня")
     app = Application.builder().token(BOT_TOKEN).build()
-
     app.add_handler(CommandHandler("test", test_cmd, filters=ALLOWED_GROUP_FILTER))
     app.add_handler(CommandHandler("start", start, filters=ALLOWED_GROUP_FILTER))
     app.add_handler(CommandHandler("lock", lock, filters=ALLOWED_GROUP_FILTER))
@@ -614,63 +635,56 @@ if __name__ == "__main__":
     app.add_handler(CommandHandler("mute666", mute666, filters=ALLOWED_GROUP_FILTER))
     app.add_handler(CommandHandler("unmute", unmute, filters=ALLOWED_GROUP_FILTER))
     app.add_handler(CommandHandler("listmute", listmute, filters=ALLOWED_GROUP_FILTER))
-
     app.add_handler(MessageHandler(
         filters.Chat(chat_id=ALLOWED_CHAT_IDS) &
         filters.ChatType.GROUPS &
         filters.COMMAND,
         auto_delete_commands
     ))
-
     app.add_handler(MessageHandler(
         filters.ChatType.GROUPS & ~filters.COMMAND & ALLOWED_GROUP_FILTER,
         handle_message
     ))
-
     app.add_error_handler(error_handler)
-
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-
 
 # =============================================================================
 # ─── ВЕРСІЇ ТА ІНСТРУКЦІЇ ДЛЯ МАЙБУТНЬОГО GROK ───────────────────────────────
 # =============================================================================
 #
-# Поточна версія: 0.0.19
+# Поточна версія: 0.0.20
 #
 # Правила зміни версії (обов’язково виконуй при кожному повному виводі коду):
 #
 # 1. Версія завжди в форматі MAJOR.MINOR.PATCH
-#    • MAJOR = 0 → експериментальна / альфа-версія
-#    • MINOR = збільшуй при суттєвих змінах функціоналу, рефакторингу, нових фіч
-#    • PATCH = збільшуй при виправленні багів, дрібних покращень, оптимізації
+# • MAJOR = 0 → експериментальна / альфа-версія
+# • MINOR = збільшуй при суттєвих змінах функціоналу, рефакторингу, нових фіч
+# • PATCH = збільшуй при виправленні багів, дрібних покращень, оптимізації
 #
-# 2. При кожному новому повному виводі коду (тобто коли користувач просить
-#    оновлений/виправлений/доповнений повний код) — завжди:
-#      а) збільшуй PATCH на +1, якщо це лише виправлення/дрібні зміни
-#      б) збільшуй MINOR на +1 і скидай PATCH на 0, якщо додано нову велику фічу
-#         або зроблено значний рефакторинг (наприклад, перехід на per-chat lock/mutes)
-#      в) ніколи не залишай версію такою ж, як була — це означає, що код не змінився
+# 2. При кожному новому повному виводі коду — завжди:
+# а) збільшуй PATCH на +1, якщо це лише виправлення/дрібні зміни
+# б) збільшуй MINOR на +1 і скидай PATCH на 0, якщо додана нова велика фіча
+# або значний рефакторинг
+# в) ніколи не залишай версію такою ж
 #
-# 3. У верхньому рядку цього блоку завжди оновлюй рядок:
-#      Поточна версія: X.Y.Z
+# 3. У верхньому рядку блоку завжди оновлюй: Поточна версія: X.Y.Z
 #
-# 4. Додавай у changelog нижче новий запис у форматі:
-#    • X.Y.Z   YYYY-MM-DD   Короткий опис змін (можна кілька рядків)
+# 4. Додавай у changelog новий запис:
+# • X.Y.Z YYYY-MM-DD Короткий опис змін
 #
 # Changelog:
-# • 0.0.19   2025-07-14   Додано блок версій, changelog та інструкції для майбутнього себе
-# • 0.0.18   (раніше)     Версія, яку спочатку аналізував користувач
-# • 0.0.1–0.0.17          Ранні ітерації (не документувалися детально)
+# • 0.0.20 2026-01-31 Реалізовано ротацію логів за часом (TimedRotatingFileHandler, щодня опівночі, 30 днів)
+# • 0.0.19 2025-07-14 Додано блок версій, changelog та інструкції
+# • 0.0.18 (раніше) Початкова версія
 #
-# 5. Якщо користувач попросить конкретну версію або повернення до старої — вказуй
-#    у відповіді, що це регрес/відкат, і пропонуй зберегти поточну як окрему гілку
+# 5. Якщо користувач попросить конкретну стару версію — вказуй, що це регрес,
+# і пропонуй зберегти поточну як окрему гілку
 #
 # 6. Найважливіші майбутні покращення (пріоритетність):
-#    • Перейти на per-chat locked status (замість глобального group_locked)
-#    • Зробити мути per-chat (словник {chat_id: {user_id: until}})
-#    • Звільнити адміністраторів від антифлуд-лічильників
-#    • Додати періодичне збереження JSON через JobQueue (замість на кожне повідомлення)
-#    • Додати команду /reloadconfig або автоматичне перечитування .env
+# • Перейти на per-chat locked status та мути
+# • Звільнити адміністраторів від антифлуд-лічильників
+# • Додати періодичне збереження JSON через JobQueue
+# • Додати graceful shutdown (збереження даних при SIGTERM)
+# • Додати команду /reloadconfig
 #
 # =============================================================================
