@@ -40,10 +40,6 @@ VOICE_MUTE_MINUTES = int(os.getenv("VOICE_MUTE_MINUTES", 30))
 DAILY_MUTE_DAYS = int(os.getenv("DAILY_MUTE_DAYS", 7))
 
 # Нові опції звільнення від антифлуд-лічильників
-# Додайте в .env (за замовчуванням увімкнено — true):
-# EXEMPT_OWNER_ANTIFLOOD=true
-# EXEMPT_CREATOR_ANTIFLOOD=true
-# EXEMPT_ADMIN_ANTIFLOOD=true
 EXEMPT_OWNER_ANTIFLOOD = os.getenv("EXEMPT_OWNER_ANTIFLOOD", "true").lower() == "true"
 EXEMPT_CREATOR_ANTIFLOOD = os.getenv("EXEMPT_CREATOR_ANTIFLOOD", "true").lower() == "true"
 EXEMPT_ADMIN_ANTIFLOOD = os.getenv("EXEMPT_ADMIN_ANTIFLOOD", "true").lower() == "true"
@@ -158,6 +154,9 @@ def save_mutes():
     data = {str(k): v.isoformat() for k, v in mutes.items()}
     save_json(MUTES_FILE, data)
 
+# Rate limit для приватних повідомлень від бота (1 на хвилину для звичайних користувачів)
+last_private_msg: dict[int, datetime] = {}
+
 # ─── Error handler ────────────────────────────────────────────────────────────────
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
@@ -175,6 +174,16 @@ async def reply_in_private(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     user = update.effective_user
     if not user:
         return
+    user_id = user.id
+    now = datetime.now(timezone.utc)
+
+    # OWNER не обмежується
+    if user_id != OWNER_ID:
+        last = last_private_msg.get(user_id)
+        if last and now - last < timedelta(minutes=1):
+            logger.info(f"Rate limit приватного повідомлення для користувача {user_id}")
+            return
+
     try:
         await context.bot.send_message(
             chat_id=user.id,
@@ -184,6 +193,11 @@ async def reply_in_private(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         )
     except TelegramError as e:
         logger.info(f"Не вдалося надіслати в приват {user.id}: {e}")
+        return
+
+    # Оновлюємо таймер тільки після успішної відправки (для звичайних користувачів)
+    if user_id != OWNER_ID:
+        last_private_msg[user_id] = now
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
@@ -364,7 +378,7 @@ async def mute24h(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     await delete_command_message(message)
     if not message.reply_to_message or not message.reply_to_message.from_user:
-        await reply_in_private(update, context, "Потрібно відповісти на повідомлення користувача.")
+        await reply_in_private(update, context, "Потрібно відповіти на повідомлення користувача.")
         return
     target_id = message.reply_to_message.from_user.id
     target_name = message.reply_to_message.from_user.full_name
@@ -382,7 +396,7 @@ async def mute666(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_id = message.reply_to_message.from_user.id
     target_name = message.reply_to_message.from_user.full_name
     await manual_mute(context, message.chat.id, target_id, 365 * 24 * 60, "ручний мут 365 днів")
-    await reply_in_private(update, context, f"{target_name} (id {target_id}) замучений на 365 днів.")
+    await reply_in_private(update, context, f"{target_name} (id {target_id}) замучений на ovo 365 днів.")
 
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
@@ -544,7 +558,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             exempt = True
 
         if exempt:
-            # Повідомлення від звільнених користувачів не враховуються в лічильниках антифлуду
             return
 
     # Короткостроковий
@@ -668,7 +681,7 @@ if __name__ == "__main__":
 # ─── ВЕРСІЇ ТА ІНСТРУКЦІЇ ДЛЯ МАЙБУТНЬОГО GROK ───────────────────────────────
 # =============================================================================
 #
-# Поточна версія: 0.0.21
+# Поточна версія: 0.0.22
 #
 # Правила зміни версії (обов’язково виконуй при кожному повному виводі коду):
 #
@@ -689,6 +702,7 @@ if __name__ == "__main__":
 # • X.Y.Z YYYY-MM-DD Короткий опис змін
 #
 # Changelog:
+# • 0.0.22 2026-01-31 Додано обмеження приватних повідомлень від бота: максимум 1 на хвилину для звичайних користувачів (OWNER звільнений)
 # • 0.0.21 2026-01-31 Додано опції EXEMPT_*_ANTIFLOOD у .env для окремого звільнення OWNER, creator та administrator від антифлуд-лічильників (за замовчуванням увімкнено)
 # • 0.0.20 2026-01-31 Реалізовано ротацію логів за часом (TimedRotatingFileHandler, щодня опівночі, 30 днів)
 # • 0.0.19 2025-07-14 Додано блок версій, changelog та інструкції
@@ -704,4 +718,3 @@ if __name__ == "__main__":
 # • Додати команду /reloadconfig
 #
 # =============================================================================
-(venv) heorh@olgera:~/Telegram-Moderation-Bot$ 
