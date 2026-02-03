@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, date, time, timezone
 import re
 import json
 from pathlib import Path
-from filelock import FileLock, Timeout # pip install filelock
+from filelock import FileLock, Timeout  # pip install filelock
 from logging.handlers import TimedRotatingFileHandler
 
 # Завантажуємо .env
@@ -20,7 +20,6 @@ if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не знайдено в .env файлі!")
 
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
-
 ALLOWED_CHAT_IDS_STR = os.getenv("ALLOWED_CHAT_IDS", "")
 ALLOWED_CHAT_IDS = set()
 if ALLOWED_CHAT_IDS_STR:
@@ -118,7 +117,7 @@ for k, v in raw.items():
         user_id = int(k)
         short_term_data[user_id] = [datetime.fromisoformat(t) for t in v]
     except Exception as e:
-        logger.warning(f"Помилка заванта拔ження short_term для {k}: {v} — {e}")
+        logger.warning(f"Помилка завантаження short_term для {k}: {v} — {e}")
 
 # Мута — завантажуємо тільки активні
 mutes = {}
@@ -176,14 +175,12 @@ async def reply_in_private(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         return
     user_id = user.id
     now = datetime.now(timezone.utc)
-
     # OWNER не обмежується
     if user_id != OWNER_ID:
         last = last_private_msg.get(user_id)
         if last and now - last < timedelta(minutes=1):
             logger.info(f"Rate limit приватного повідомлення для користувача {user_id}")
             return
-
     try:
         await context.bot.send_message(
             chat_id=user.id,
@@ -194,7 +191,6 @@ async def reply_in_private(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     except TelegramError as e:
         logger.info(f"Не вдалося надіслати в приват {user.id}: {e}")
         return
-
     # Оновлюємо таймер тільки після успішної відправки (для звичайних користувачів)
     if user_id != OWNER_ID:
         last_private_msg[user_id] = now
@@ -348,9 +344,11 @@ async def manual_mute(context: ContextTypes.DEFAULT_TYPE, chat_id: int, target_i
 
 async def mute15(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    if not message or message.from_user.id != OWNER_ID:
+    if not message:
         return
     await delete_command_message(message)
+    if message.from_user.id != OWNER_ID:
+        return
     if not message.reply_to_message or not message.reply_to_message.from_user:
         await reply_in_private(update, context, "Потрібно відповісти на повідомлення користувача.")
         return
@@ -361,9 +359,11 @@ async def mute15(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mute60(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    if not message or message.from_user.id != OWNER_ID:
+    if not message:
         return
     await delete_command_message(message)
+    if message.from_user.id != OWNER_ID:
+        return
     if not message.reply_to_message or not message.reply_to_message.from_user:
         await reply_in_private(update, context, "Потрібно відповісти на повідомлення користувача.")
         return
@@ -374,9 +374,11 @@ async def mute60(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mute24h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    if not message or message.from_user.id != OWNER_ID:
+    if not message:
         return
     await delete_command_message(message)
+    if message.from_user.id != OWNER_ID:
+        return
     if not message.reply_to_message or not message.reply_to_message.from_user:
         await reply_in_private(update, context, "Потрібно відповісти на повідомлення користувача.")
         return
@@ -387,9 +389,11 @@ async def mute24h(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def mute666(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    if not message or message.from_user.id != OWNER_ID:
+    if not message:
         return
     await delete_command_message(message)
+    if message.from_user.id != OWNER_ID:
+        return
     if not message.reply_to_message or not message.reply_to_message.from_user:
         await reply_in_private(update, context, "Потрібно відповісти на повідомлення користувача.")
         return
@@ -400,9 +404,11 @@ async def mute666(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    if not message or message.from_user.id != OWNER_ID:
+    if not message:
         return
     await delete_command_message(message)
+    if message.from_user.id != OWNER_ID:
+        return
     if not message.reply_to_message or not message.reply_to_message.from_user:
         await reply_in_private(update, context, "Потрібно відповісти на повідомлення користувача.")
         return
@@ -428,9 +434,11 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def listmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
-    if not message or message.from_user.id != OWNER_ID:
+    if not message:
         return
     await delete_command_message(message)
+    if message.from_user.id != OWNER_ID:
+        return
     if not mutes:
         await reply_in_private(update, context, "Наразі немає замучених користувачів.")
         return
@@ -495,7 +503,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_time = message.date
     user_id = message.from_user.id if message.from_user else None
     is_anonymous = user_id is None
-
     # Перевірка мута
     if user_id and user_id in mutes:
         if datetime.now(timezone.utc) < mutes[user_id]:
@@ -507,7 +514,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             del mutes[user_id]
             save_mutes()
-
     if group_locked:
         try:
             member = await context.bot.get_chat_member(chat_id, user_id) if user_id else None
@@ -518,7 +524,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await message.delete()
             return
-
     if message.voice:
         try:
             await message.delete()
@@ -536,10 +541,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
         return
-
     if is_anonymous:
         return
-
     # === НОВА ЛОГІКА ЗВІЛЬНЕННЯ ВІД АНТИФЛУДУ ===
     if user_id:
         try:
@@ -548,7 +551,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except Exception as e:
             logger.debug(f"Не вдалося отримати статус користувача {user_id} для перевірки exempt: {e}")
             status = None
-
         exempt = False
         if user_id == OWNER_ID and EXEMPT_OWNER_ANTIFLOOD:
             exempt = True
@@ -556,10 +558,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             exempt = True
         elif status == "administrator" and EXEMPT_ADMIN_ANTIFLOOD:
             exempt = True
-
         if exempt:
             return
-
     # Короткостроковий
     short_term_data.setdefault(user_id, []).append(current_time)
     cutoff = current_time - timedelta(minutes=SHORT_TERM_WINDOW_MINUTES)
@@ -577,7 +577,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         save_short()
         return
-
     # Годинний
     hourly_data.setdefault(user_id, []).append(current_time)
     cutoff_hour = current_time - timedelta(hours=1)
@@ -595,7 +594,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         save_hourly()
         return
-
     # Денний
     today = current_time.date()
     if user_id not in daily_limits:
@@ -607,7 +605,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             entry["count"] = 1
         else:
             entry["count"] += 1
-
     if daily_limits[user_id]["count"] > DAILY_MESSAGE_LIMIT:
         display_name = message.from_user.full_name
         await apply_soft_mute(
@@ -621,7 +618,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         save_daily()
         return
-
     save_daily()
     save_hourly()
     save_short()
@@ -681,7 +677,7 @@ if __name__ == "__main__":
 # ─── ВЕРСІЇ ТА ІНСТРУКЦІЇ ДЛЯ МАЙБУТНЬОГО GROK ───────────────────────────────
 # =============================================================================
 #
-# Поточна версія: 0.0.23
+# Поточна версія: 0.0.24
 #
 # Правила зміни версії (обов’язково виконуй при кожному повному виводі коду):
 #
@@ -702,11 +698,12 @@ if __name__ == "__main__":
 # • X.Y.Z YYYY-MM-DD Короткий опис змін
 #
 # Changelog:
+# • 0.0.24 2026-02-03 Виправлено видалення owner-only команд (/mute*, /unmute, /listmute) від неавторизованих користувачів. Виправлена опечатка в логуванні short_term.
 # • 0.0.23 2026-01-31 Дрібне підвищення версії за правилами (повний вивід коду без функціональних змін)
 # • 0.0.22 2026-01-31 Додано обмеження приватних повідомлень від бота: максимум 1 на хвилину для звичайних користувачів (OWNER звільнений)
 # • 0.0.21 2026-01-31 Додано опції EXEMPT_*_ANTIFLOOD у .env для окремого звільнення OWNER, creator та administrator від антифлуд-лічильників (за замовчуванням увімкнено)
 # • 0.0.20 2026-01-31 Реалізовано ротацію логів за часом (TimedRotatingFileHandler, щодня опівночі, 30 днів)
-# • 0.0.19 2026-01-30 Додано блок версій, changelog та інструкції
+# • 0.0.19 2025-07-14 Додано блок версій, changelog та інструкції
 # • 0.0.18 (раніше) Початкова версія
 #
 # 5. Якщо користувач попросить конкретну стару версію — вказуй, що це регрес,
