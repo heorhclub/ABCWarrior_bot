@@ -413,6 +413,7 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if target_id in mutes:
         del mutes[target_id]
         save_mutes()
+        # Повне скидання всіх лічильників при ручному /unmute
         if target_id in short_term_data:
             del short_term_data[target_id]
             save_short()
@@ -421,9 +422,13 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
             del hourly_data[target_id]
             save_hourly()
             logger.info(f"Hourly data очищено для {target_id} після /unmute")
+        if target_id in daily_limits:
+            del daily_limits[target_id]
+            save_daily()
+            logger.info(f"Daily limits очищено для {target_id} після /unmute")
         await reply_in_private(update, context,
             f"Мут знято з {target_name} (id {target_id}).\n"
-            f"Очищено лічильники за 5 хвилин та за годину.")
+            f"Очищено всі лічильники антифлуду (short_term, hourly, daily).")
     else:
         await reply_in_private(update, context,
             f"У {target_name} (id {target_id}) немає активного мута.")
@@ -500,7 +505,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = message.from_user.id if message.from_user else None
     is_anonymous = user_id is None
 
-    # Перевірка мута + очищення ТІЛЬКИ short_term при експірації
+    # Перевірка мута + очищення short_term та hourly при експірації
     if user_id and user_id in mutes:
         if datetime.now(timezone.utc) < mutes[user_id]:
             try:
@@ -515,7 +520,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 del short_term_data[user_id]
                 save_short()
                 logger.info(f"Short-term data очищено для {user_id} після автоматичної експірації мута")
-            # hourly_data залишаємо для накопичення до наступного рівня
+            if user_id in hourly_data:
+                del hourly_data[user_id]
+                save_hourly()
+                logger.info(f"Hourly data очищено для {user_id} після автоматичної експірації мута")
+            # daily_limits залишаємо для накопичення
 
     if group_locked:
         try:
@@ -683,7 +692,7 @@ if __name__ == "__main__":
 # ─── ВЕРСІЇ ТА ІНСТРУКЦІЇ ДЛЯ МАЙБУТНЬОГО GROK ───────────────────────────────
 # =============================================================================
 #
-# Поточна версія: 0.0.26
+# Поточна версія: 0.0.27
 #
 # Правила зміни версії (обов’язково виконуй при кожному повному виводі коду):
 #
@@ -704,6 +713,7 @@ if __name__ == "__main__":
 # • X.Y.Z YYYY-MM-DD Короткий опис змін
 #
 # Changelog:
+# • 0.0.27 2026-02-03 При автоматичній експірації мута тепер очищається hourly_data (разом з short_term). /unmute скидає всі лічильники.
 # • 0.0.26 2026-02-03 Виправлено логіку очищення лічильників при експірації мута: тепер очищається ТІЛЬКИ short_term (hourly накопичується для досягнення наступного рівня).
 # • 0.0.25 2026-02-03 Виправлено ланцюжок мутів: при автоматичній експірації мута тепер очищаються short_term та hourly лічильники (як у /unmute).
 # • 0.0.24 2026-02-03 Виправлено видалення owner-only команд від неавторизованих користувачів. Виправлена опечатка в логуванні short_term.
