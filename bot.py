@@ -210,7 +210,8 @@ async def reply_in_private(update: Update, context: ContextTypes.DEFAULT_TYPE, t
     logger.debug(f"Надсилання в чат {target_id} (текст: {text[:50]}...)")
 
     now = datetime.now(timezone.utc)
-    if target_id != OWNER_ID:
+    # Rate limit НЕ застосовується до OWNER_ID та OWNER_PRIVATE_ID
+    if target_id != OWNER_ID and target_id != OWNER_PRIVATE_ID:
         last = last_private_msg.get(target_id)
         if last and now - last < timedelta(minutes=1):
             logger.info(f"Rate limit для чату {target_id}")
@@ -228,7 +229,8 @@ async def reply_in_private(update: Update, context: ContextTypes.DEFAULT_TYPE, t
         logger.warning(f"Не вдалося надіслати в чат {target_id}: {e}")
         return
     
-    if target_id != OWNER_ID:
+    # Оновлюємо timestamp тільки для не-власника
+    if target_id != OWNER_ID and target_id != OWNER_PRIVATE_ID:
         last_private_msg[target_id] = now
         logger.debug(f"Оновлено timestamp rate limit для {target_id}")
 
@@ -767,7 +769,7 @@ if __name__ == "__main__":
 # ─── ВЕРСІЇ ТА ІНСТРУКЦІЇ ДЛЯ МАЙБУТНЬОГО GROK ───────────────────────────────
 # =============================================================================
 #
-# Поточна версія: 0.0.29
+# Поточна версія: 0.0.30
 #
 # Правила зміни версії (обов’язково виконуй при кожному повному виводі коду):
 #
@@ -788,7 +790,8 @@ if __name__ == "__main__":
 # • X.Y.Z YYYY-MM-DD Короткий опис змін
 #
 # Changelog:
-# • 0.0.29 2026-02-04 Додано динамічний рівень логування LOGGER_LEVEL (DEBUG включає все INFO + детальні виклики функцій, перевірки, лічильники, помилки). Попередні 0.0.29 і 0.0.30 відміняються.
+# • 0.0.30 2026-02-04 Відключено rate limit для OWNER_PRIVATE_ID (тепер можна слати часті повідомлення в групу нотифікацій власника без блокування). Додано динамічний LOGGER_LEVEL з детальним DEBUG.
+# • 0.0.29 2026-02-04 Додано INFO-логування всіх видалених повідомлень.
 # • 0.0.28 2026-02-04 Додано OWNER_PRIVATE_ID для надійних приватних повідомлень власнику при постах від каналу (анонімно). Виправлено reply_in_private для анонімних постів.
 # • 0.0.27 2026-02-03 При автоматичній експірації мута тепер очищається hourly_data (разом з short_term). /unmute скидає всі лічильники.
 # • 0.0.26 2026-02-03 Виправлено логіку очищення лічильників при експірації мута: тепер очищається ТІЛЬКИ short_term (hourly накопичується для досягнення наступного рівня).
