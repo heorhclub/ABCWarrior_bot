@@ -42,7 +42,14 @@ Edit .env:
 
 BOT_TOKEN=your_token_from_BotFather\
 OWNER_ID=your_Telegram_ID\
+
+Essential when posting anonymously from channel (discussion group)
+If empty — falls back to OWNER_ID
+
+OWNER_PRIVATE_ID= # Optional: separate ID for private messages to owner\
+
 ALLOWED_CHAT_IDS=-100xxxxxxxxxx  # Group IDs separated by commas\
+
 
 ### Limits (can be changed)
 DAILY_MESSAGE_LIMIT=200\
