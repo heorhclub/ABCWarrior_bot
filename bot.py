@@ -8,18 +8,16 @@ from datetime import datetime, timedelta, date, time, timezone
 import re
 import json
 from pathlib import Path
-from filelock import FileLock, Timeout  # pip install filelock
+from filelock import FileLock, Timeout # pip install filelock
 from logging.handlers import TimedRotatingFileHandler
-
 # Завантажуємо .env
 load_dotenv()
-
 # Основні критичні змінні
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 if not BOT_TOKEN:
     raise ValueError("BOT_TOKEN не знайдено в .env файлі!")
-
 OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+OWNER_PRIVATE_ID = int(os.getenv("OWNER_PRIVATE_ID", str(OWNER_ID))) # fallback на OWNER_ID
 ALLOWED_CHAT_IDS_STR = os.getenv("ALLOWED_CHAT_IDS", "")
 ALLOWED_CHAT_IDS = set()
 if ALLOWED_CHAT_IDS_STR:
@@ -27,7 +25,6 @@ if ALLOWED_CHAT_IDS_STR:
         ALLOWED_CHAT_IDS = {int(x.strip()) for x in ALLOWED_CHAT_IDS_STR.split(",") if x.strip()}
     except ValueError as e:
         print(f"Помилка парсингу ALLOWED_CHAT_IDS: {e}")
-
 # Антифлуд-ліміти (можна налаштувати через .env)
 DAILY_MESSAGE_LIMIT = int(os.getenv("DAILY_MESSAGE_LIMIT", 200))
 HOURLY_MESSAGE_LIMIT = int(os.getenv("HOURLY_MESSAGE_LIMIT", 100))
@@ -37,12 +34,10 @@ SHORT_TERM_WINDOW_MINUTES = int(os.getenv("SHORT_TERM_WINDOW_MINUTES", 5))
 SHORT_TERM_MUTE_MINUTES = int(os.getenv("SHORT_TERM_MUTE_MINUTES", 3))
 VOICE_MUTE_MINUTES = int(os.getenv("VOICE_MUTE_MINUTES", 30))
 DAILY_MUTE_DAYS = int(os.getenv("DAILY_MUTE_DAYS", 7))
-
 # Нові опції звільнення від антифлуд-лічильників
 EXEMPT_OWNER_ANTIFLOOD = os.getenv("EXEMPT_OWNER_ANTIFLOOD", "true").lower() == "true"
 EXEMPT_CREATOR_ANTIFLOOD = os.getenv("EXEMPT_CREATOR_ANTIFLOOD", "true").lower() == "true"
 EXEMPT_ADMIN_ANTIFLOOD = os.getenv("EXEMPT_ADMIN_ANTIFLOOD", "true").lower() == "true"
-
 # ─── Налаштування логування з ротацією за часом ───
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -56,10 +51,8 @@ handler = TimedRotatingFileHandler(
 formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
 handler.setFormatter(formatter)
 logger.addHandler(handler)
-
 # ────────────────────────────────────────────────────────────────
 ALLOWED_GROUP_FILTER = filters.Chat(chat_id=ALLOWED_CHAT_IDS) & filters.ChatType.GROUPS
-
 # ─── JSON збереження ────────────────────────────────────────────────────────────────
 DATA_DIR = Path("data")
 DATA_DIR.mkdir(exist_ok=True)
@@ -67,7 +60,6 @@ DAILY_FILE = DATA_DIR / "daily_limits.json"
 HOURLY_FILE = DATA_DIR / "hourly_data.json"
 SHORT_FILE = DATA_DIR / "short_term_data.json"
 MUTES_FILE = DATA_DIR / "mutes.json"
-
 def save_json(path: Path, data):
     lock_path = path.with_suffix(path.suffix + ".lock")
     try:
@@ -78,7 +70,6 @@ def save_json(path: Path, data):
         logger.warning(f"Timeout lock {path}")
     except Exception as e:
         logger.error(f"Помилка збереження {path}: {e}")
-
 def load_json(path: Path, default={}):
     if not path.exists():
         return default
@@ -88,7 +79,6 @@ def load_json(path: Path, default={}):
     except Exception as e:
         logger.error(f"Помилка читання {path}: {e}")
         return default
-
 # Завантаження при старті
 daily_limits = {}
 raw = load_json(DAILY_FILE)
@@ -100,7 +90,6 @@ for k, v in raw.items():
         daily_limits[user_id] = {"date": entry_date, "count": int(v["count"])}
     except Exception as e:
         logger.warning(f"Помилка завантаження daily для {k}: {v} — {e}")
-
 hourly_data = {}
 raw = load_json(HOURLY_FILE)
 for k, v in raw.items():
@@ -109,7 +98,6 @@ for k, v in raw.items():
         hourly_data[user_id] = [datetime.fromisoformat(t) for t in v]
     except Exception as e:
         logger.warning(f"Помилка завантаження hourly для {k}: {v} — {e}")
-
 short_term_data = {}
 raw = load_json(SHORT_FILE)
 for k, v in raw.items():
@@ -118,7 +106,6 @@ for k, v in raw.items():
         short_term_data[user_id] = [datetime.fromisoformat(t) for t in v]
     except Exception as e:
         logger.warning(f"Помилка завантаження short_term для {k}: {v} — {e}")
-
 # Мута — завантажуємо тільки активні
 mutes = {}
 raw_mutes = load_json(MUTES_FILE, default={})
@@ -130,36 +117,28 @@ for k, v in raw_mutes.items():
             mutes[int(k)] = until
     except Exception as e:
         logger.warning(f"Помилка завантаження mute для {k}: {v} — {e}")
-
 logger.info(f"Завантажено: daily={len(daily_limits)}, hourly={len(hourly_data)}, "
             f"short={len(short_term_data)}, active mutes={len(mutes)}")
-
 def save_daily():
     data = {str(k): {
         "date": datetime.combine(v["date"], time(0, 0), tzinfo=timezone.utc).isoformat(),
         "count": v["count"]
     } for k, v in daily_limits.items()}
     save_json(DAILY_FILE, data)
-
 def save_hourly():
     data = {str(k): [t.isoformat() for t in v] for k, v in hourly_data.items()}
     save_json(HOURLY_FILE, data)
-
 def save_short():
     data = {str(k): [t.isoformat() for t in v] for k, v in short_term_data.items()}
     save_json(SHORT_FILE, data)
-
 def save_mutes():
     data = {str(k): v.isoformat() for k, v in mutes.items()}
     save_json(MUTES_FILE, data)
-
 # Rate limit для приватних повідомлень від бота
 last_private_msg: dict[int, datetime] = {}
-
 # ─── Error handler ────────────────────────────────────────────────────────────────
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE):
     logger.error(f"Exception while handling an update: {context.error}", exc_info=context.error)
-
 # ─── Функції бота ────────────────────────────────────────────────────────────────
 async def delete_command_message(message):
     if not message or message.chat.type == "private":
@@ -168,31 +147,53 @@ async def delete_command_message(message):
         await message.delete()
     except TelegramError as e:
         logger.debug(f"Не вдалося видалити команду: {e}")
-
 async def reply_in_private(update: Update, context: ContextTypes.DEFAULT_TYPE, text: str, parse_mode=None):
-    user = update.effective_user
-    if not user:
+    message = update.message
+    if not message:
         return
-    user_id = user.id
+    
+    # Пріоритет: якщо вказаний OWNER_PRIVATE_ID (і він != 0) — використовуємо його 
+    # для всіх випадків, пов'язаних з власником (анонімні пости + команди від OWNER_ID)
+    if OWNER_PRIVATE_ID != 0:
+        if message.from_user is None:
+            target_id = OWNER_PRIVATE_ID
+        elif message.from_user and message.from_user.id == OWNER_ID:
+            target_id = OWNER_PRIVATE_ID
+        else:
+            target_id = message.from_user.id
+    else:
+        # Fallback, якщо OWNER_PRIVATE_ID не вказаний
+        if message.from_user is None:
+            target_id = OWNER_ID
+        else:
+            target_id = message.from_user.id
+    
+    if target_id is None or target_id == 0:
+        logger.warning("Немає валідного target_id для приватного повідомлення")
+        return
+    
     now = datetime.now(timezone.utc)
-    if user_id != OWNER_ID:
-        last = last_private_msg.get(user_id)
+    # Rate limit НЕ застосовується до OWNER_ID та OWNER_PRIVATE_ID (навіть якщо це група)
+    if target_id != OWNER_ID and target_id != OWNER_PRIVATE_ID:
+        last = last_private_msg.get(target_id)
         if last and now - last < timedelta(minutes=1):
-            logger.info(f"Rate limit приватного повідомлення для користувача {user_id}")
+            logger.info(f"Rate limit приватного повідомлення для чату {target_id}")
             return
+    
     try:
         await context.bot.send_message(
-            chat_id=user.id,
+            chat_id=target_id,
             text=text,
             parse_mode=parse_mode,
             disable_notification=True
         )
     except TelegramError as e:
-        logger.info(f"Не вдалося надіслати в приват {user.id}: {e}")
+        logger.warning(f"Не вдалося надіслати в чат {target_id}: {e}")
         return
-    if user_id != OWNER_ID:
-        last_private_msg[user_id] = now
-
+    
+    # Запам'ятовуємо час тільки якщо це НЕ власник (OWNER_ID або OWNER_PRIVATE_ID)
+    if target_id != OWNER_ID and target_id != OWNER_PRIVATE_ID:
+        last_private_msg[target_id] = now
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message:
@@ -212,7 +213,6 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await delete_command_message(message)
         text += "\n\nВідповідь надіслано в приват."
     await reply_in_private(update, context, text)
-
 async def lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message or not message.from_user:
@@ -231,7 +231,6 @@ async def lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global group_locked
     group_locked = True
     await reply_in_private(update, context, "Група заблокована (тільки адміни можуть писати).")
-
 async def unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message or not message.from_user:
@@ -250,7 +249,6 @@ async def unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global group_locked
     group_locked = False
     await reply_in_private(update, context, "Група розблокована.")
-
 async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message or not message.from_user:
@@ -320,7 +318,6 @@ async def stats(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             text += "\n\nСтатус мута: активний відсутній"
     await reply_in_private(update, context, text)
-
 async def test_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message or not message.from_user:
@@ -331,13 +328,11 @@ async def test_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await delete_command_message(message)
         await reply_in_private(update, context, "Команда /test доступна тільки для власника")
-
 async def manual_mute(context: ContextTypes.DEFAULT_TYPE, chat_id: int, target_id: int, minutes: int, reason: str):
     mute_until = datetime.now(timezone.utc) + timedelta(minutes=minutes)
     mutes[target_id] = mute_until
     save_mutes()
     logger.info(f"Ручний мут {target_id} на {minutes} хв у чаті {chat_id}: {reason}")
-
 async def mute15(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message:
@@ -352,7 +347,6 @@ async def mute15(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_name = message.reply_to_message.from_user.full_name
     await manual_mute(context, message.chat.id, target_id, 15, "ручний мут 15 хв")
     await reply_in_private(update, context, f"{target_name} (id {target_id}) замучений на 15 хвилин.")
-
 async def mute60(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message:
@@ -367,7 +361,6 @@ async def mute60(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_name = message.reply_to_message.from_user.full_name
     await manual_mute(context, message.chat.id, target_id, 60, "ручний мут 60 хв")
     await reply_in_private(update, context, f"{target_name} (id {target_id}) замучений на 60 хвилин.")
-
 async def mute24h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message:
@@ -382,7 +375,6 @@ async def mute24h(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_name = message.reply_to_message.from_user.full_name
     await manual_mute(context, message.chat.id, target_id, 1440, "ручний мут 24 години")
     await reply_in_private(update, context, f"{target_name} (id {target_id}) замучений на 24 години.")
-
 async def mute666(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message:
@@ -397,7 +389,6 @@ async def mute666(update: Update, context: ContextTypes.DEFAULT_TYPE):
     target_name = message.reply_to_message.from_user.full_name
     await manual_mute(context, message.chat.id, target_id, 365 * 24 * 60, "ручний мут 365 днів")
     await reply_in_private(update, context, f"{target_name} (id {target_id}) замучений на 365 днів.")
-
 async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message:
@@ -413,7 +404,6 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if target_id in mutes:
         del mutes[target_id]
         save_mutes()
-        # Повне скидання всіх лічильників при ручному /unmute
         if target_id in short_term_data:
             del short_term_data[target_id]
             save_short()
@@ -432,7 +422,6 @@ async def unmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     else:
         await reply_in_private(update, context,
             f"У {target_name} (id {target_id}) немає активного мута.")
-
 async def listmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message:
@@ -464,7 +453,6 @@ async def listmute(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await reply_in_private(update, context, "Наразі немає активних мутів.")
     else:
         await reply_in_private(update, context, "\n".join(lines))
-
 async def apply_soft_mute(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user_id: int,
                          minutes: int, reason: str, mention_name: str = None):
     if user_id is None:
@@ -490,9 +478,7 @@ async def apply_soft_mute(context: ContextTypes.DEFAULT_TYPE, chat_id: int, user
     except:
         pass
     logger.info(f"Soft-mute {user_id} → {minutes} хв: {reason}")
-
 group_locked = False
-
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     global group_locked, daily_limits, hourly_data, short_term_data, mutes
     message = update.message
@@ -504,7 +490,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     current_time = message.date
     user_id = message.from_user.id if message.from_user else None
     is_anonymous = user_id is None
-
     # Перевірка мута + очищення short_term та hourly при експірації
     if user_id and user_id in mutes:
         if datetime.now(timezone.utc) < mutes[user_id]:
@@ -524,8 +509,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 del hourly_data[user_id]
                 save_hourly()
                 logger.info(f"Hourly data очищено для {user_id} після автоматичної експірації мута")
-            # daily_limits залишаємо для накопичення
-
     if group_locked:
         try:
             member = await context.bot.get_chat_member(chat_id, user_id) if user_id else None
@@ -536,7 +519,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except:
             await message.delete()
             return
-
     if message.voice:
         try:
             await message.delete()
@@ -554,10 +536,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             except:
                 pass
         return
-
     if is_anonymous:
         return
-
     if user_id:
         try:
             member = await context.bot.get_chat_member(chat_id, user_id)
@@ -574,7 +554,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             exempt = True
         if exempt:
             return
-
     short_term_data.setdefault(user_id, []).append(current_time)
     cutoff = current_time - timedelta(minutes=SHORT_TERM_WINDOW_MINUTES)
     short_term_data[user_id] = [t for t in short_term_data[user_id] if t >= cutoff]
@@ -591,7 +570,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         save_short()
         return
-
     hourly_data.setdefault(user_id, []).append(current_time)
     cutoff_hour = current_time - timedelta(hours=1)
     hourly_data[user_id] = [t for t in hourly_data[user_id] if t >= cutoff_hour]
@@ -608,7 +586,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         save_hourly()
         return
-
     today = current_time.date()
     if user_id not in daily_limits:
         daily_limits[user_id] = {"date": today, "count": 1}
@@ -632,11 +609,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         save_daily()
         return
-
     save_daily()
     save_hourly()
     save_short()
-
 async def auto_delete_commands(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = update.message
     if not message:
@@ -660,7 +635,6 @@ async def auto_delete_commands(update: Update, context: ContextTypes.DEFAULT_TYP
     except TelegramError as e:
         if "message to delete not found" not in str(e):
             logger.debug(f"Не вдалося видалити команду /{command}: {e}")
-
 if __name__ == "__main__":
     logger.info("Запуск бота | мути в окремому файлі mutes.json | логи ротація щодня")
     app = Application.builder().token(BOT_TOKEN).build()
@@ -687,12 +661,11 @@ if __name__ == "__main__":
     ))
     app.add_error_handler(error_handler)
     app.run_polling(allowed_updates=Update.ALL_TYPES)
-
 # =============================================================================
 # ─── ВЕРСІЇ ТА ІНСТРУКЦІЇ ДЛЯ МАЙБУТНЬОГО GROK ───────────────────────────────
 # =============================================================================
 #
-# Поточна версія: 0.0.27
+# Поточна версія: 0.0.28
 #
 # Правила зміни версії (обов’язково виконуй при кожному повному виводі коду):
 #
@@ -713,6 +686,7 @@ if __name__ == "__main__":
 # • X.Y.Z YYYY-MM-DD Короткий опис змін
 #
 # Changelog:
+# • 0.0.28 2026-02-04 Додано підтримку OWNER_PRIVATE_ID як chat_id групи (наприклад, закритої групи для нотифікацій власника). Всі відповіді власнику (включно з командами від OWNER_ID та анонімними постами) тепер йдуть на OWNER_PRIVATE_ID, якщо вказаний. Відключено rate limit для OWNER_PRIVATE_ID (дозволено часті повідомлення в групу). Покращено логування (використання "чат" замість "користувач" для універсальності) та захист від невалідних ID.
 # • 0.0.27 2026-02-03 При автоматичній експірації мута тепер очищається hourly_data (разом з short_term). /unmute скидає всі лічильники.
 # • 0.0.26 2026-02-03 Виправлено логіку очищення лічильників при експірації мута: тепер очищається ТІЛЬКИ short_term (hourly накопичується для досягнення наступного рівня).
 # • 0.0.25 2026-02-03 Виправлено ланцюжок мутів: при автоматичній експірації мута тепер очищаються short_term та hourly лічильники (як у /unmute).
